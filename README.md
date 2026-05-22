@@ -1,4 +1,5 @@
 # imap-mail plugin
+**To be renamed "claude-email" plugin**
 
 Connect Claude to any IMAP mailbox — search, read, generate reports, get reply
 suggestions, and surface follow-up reminders across all your email accounts.
