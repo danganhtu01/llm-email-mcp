@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { readFileSync, existsSync, copyFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ImapManager } from './imap-client.js';
@@ -198,6 +198,59 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'login_accounts',
+      description:
+        'Sign in to every Microsoft 365 (SSO/OAuth2) account that is not already authenticated. Returns a device-code + URL for each account that needs login — show them to the user to approve in a browser. Accounts already signed in, and non-SSO (password/IMAP) accounts, are skipped. Optionally pass a single account name to log in just that one.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          account: {
+            type: 'string',
+            description:
+              'Optional: only log in this one account. Omit to process all SSO accounts that need login.',
+          },
+        },
+      },
+    },
+    {
+      name: 'add_account',
+      description:
+        'Add a new email account to accounts.json. Supports type "microsoft365" (Exchange Online via SSO/OAuth2 — needs clientId, optional tenantId) or "imap" (generic IMAP — needs host; a provided password is stored in the OS keychain, never plaintext). After adding a microsoft365 account, run login_accounts (or ms365_login) to sign in.',
+      inputSchema: {
+        type: 'object',
+        required: ['type', 'name', 'user'],
+        properties: {
+          type: {
+            type: 'string',
+            enum: ['microsoft365', 'imap'],
+            description: '"microsoft365" for Exchange Online SSO, or "imap" for a password account',
+          },
+          name: { type: 'string', description: 'A friendly label, e.g. "Support Inbox"' },
+          user: { type: 'string', description: 'The email address / login' },
+          host: {
+            type: 'string',
+            description:
+              'IMAP host. Required for imap; defaults to outlook.office365.com for microsoft365.',
+          },
+          port: { type: 'number', description: 'IMAP port (default 993)' },
+          secure: { type: 'boolean', description: 'Use implicit TLS (default true)' },
+          clientId: {
+            type: 'string',
+            description: 'Azure AD app client ID (required for microsoft365)',
+          },
+          tenantId: {
+            type: 'string',
+            description: 'Azure AD tenant ID for microsoft365 (default "common")',
+          },
+          password: {
+            type: 'string',
+            description:
+              'For imap accounts only: stored securely in the OS keychain, not written to accounts.json.',
+          },
+        },
+      },
+    },
+    {
       name: 'set_credential',
       description:
         'Securely store an IMAP password in the OS keychain (Windows Credential Manager) for an account, so it no longer needs to live in plaintext in accounts.json. Overwrites any existing stored password for that account.',
@@ -303,6 +356,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           status: 'awaiting_user',
           instructions: `Open ${info.verificationUri} and enter code ${info.userCode} to sign in as ${info.user}. Approval is required within ${Math.round(info.expiresInSeconds / 60)} minutes; the token is cached automatically once you approve.`,
           ...info,
+        };
+        break;
+      }
+
+      case 'login_accounts': {
+        // Process one named account, or every OAuth2 account that needs login.
+        const targets = args.account
+          ? [manager.getAccount(args.account)].filter(isOAuthAccount)
+          : accounts.filter(isOAuthAccount);
+
+        const logins = [];
+        for (const a of targets) {
+          // Already signed in? acquireTokenSilent succeeds → skip.
+          let signedIn = false;
+          try {
+            await ms365.getAccessToken(a);
+            signedIn = true;
+          } catch (_) {
+            signedIn = false;
+          }
+          if (signedIn) {
+            logins.push({ account: a.name, user: a.user, status: 'already_signed_in' });
+            continue;
+          }
+          try {
+            const info = await ms365.beginDeviceLogin(a);
+            logins.push({
+              account: a.name,
+              user: a.user,
+              status: 'awaiting_user',
+              userCode: info.userCode,
+              verificationUri: info.verificationUri,
+              expiresInSeconds: info.expiresInSeconds,
+            });
+          } catch (e) {
+            logins.push({ account: a.name, user: a.user, status: 'error', error: e.message });
+          }
+        }
+
+        const pending = logins.filter((l) => l.status === 'awaiting_user');
+        result = {
+          logins,
+          instructions: pending.length
+            ? `For each account below: open its verificationUri and enter its userCode, signing in with that account's address and approving. ${pending.length} account(s) need sign-in. Then run test_credential (or login_accounts again) to confirm.`
+            : 'No accounts need sign-in. (Non-SSO/password accounts are not handled here.)',
+        };
+        break;
+      }
+
+      case 'add_account': {
+        const entry = manager.addAccount(args);
+        // Persist the updated in-memory array back to accounts.json.
+        writeFileSync(configPath, JSON.stringify(accounts, null, 2) + '\n');
+        const { pass, clientId, ...rest } = entry;
+        result = {
+          status: 'added',
+          account: { ...rest, ...(clientId ? { clientId } : {}) },
+          password_in_keychain: args.type === 'imap' && !!args.password,
+          file: configPath,
+          next:
+            entry.authType === 'oauth2'
+              ? `Run login_accounts (or ms365_login for "${entry.name}") to complete SSO.`
+              : `Run test_credential for "${entry.name}" to verify the login.`,
         };
         break;
       }

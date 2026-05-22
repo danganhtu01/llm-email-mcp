@@ -28,6 +28,70 @@ export class ImapManager {
     return match;
   }
 
+  // Build and register a new account in-memory. Returns the new entry; the caller
+  // is responsible for persisting `this.accounts` back to disk.
+  // type: "microsoft365" (OAuth2 SSO) or "imap" (password).
+  addAccount({
+    type,
+    name,
+    user,
+    host,
+    port,
+    secure,
+    clientId,
+    tenantId,
+    password,
+  }) {
+    if (!name) throw new Error('"name" (a friendly label) is required.');
+    if (!user) throw new Error('"user" (the email address) is required.');
+    if (
+      this.accounts.some((a) => a.name.toLowerCase() === name.toLowerCase())
+    ) {
+      throw new Error(`An account named "${name}" already exists.`);
+    }
+
+    const t = (type || '').toLowerCase();
+    let entry;
+
+    if (['microsoft365', 'm365', 'exchange', 'oauth2'].includes(t)) {
+      if (!clientId) {
+        throw new Error(
+          'Microsoft 365 accounts need a "clientId" from your Azure AD app registration.'
+        );
+      }
+      entry = {
+        _comment: 'Microsoft 365 / Exchange Online — SSO via OAuth2',
+        name,
+        host: host || 'outlook.office365.com',
+        port: port || 993,
+        secure: secure !== false,
+        user,
+        authType: 'oauth2',
+        clientId,
+        tenantId: tenantId || 'common',
+      };
+    } else if (t === 'imap') {
+      if (!host) throw new Error('IMAP accounts need a "host".');
+      entry = {
+        _comment: 'IMAP account',
+        name,
+        host,
+        port: port || 993,
+        secure: secure !== false,
+        user,
+      };
+      // Store any provided password in the OS keychain rather than plaintext.
+      if (password) this.vault.set(name, password);
+    } else {
+      throw new Error(
+        `Unknown account type "${type}". Use "microsoft365" or "imap".`
+      );
+    }
+
+    this.accounts.push(entry);
+    return entry;
+  }
+
   async buildAuth(account) {
     // Microsoft 365 / OAuth2 accounts authenticate with an XOAUTH2 access token
     // obtained via SSO instead of a stored password.
