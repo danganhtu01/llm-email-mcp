@@ -1,5 +1,4 @@
-# imap-mail plugin
-**To be renamed "claude-email" plugin**
+# claude-email plugin
 
 Connect Claude to any IMAP mailbox — search, read, generate reports, get reply
 suggestions, and surface follow-up reminders across all your email accounts.
@@ -26,7 +25,12 @@ credential storage).
 
 ### 2. Create your accounts config
 
-Copy the example file and fill in your credentials:
+**You don't have to create this file by hand.** The first time the MCP server
+starts, if `accounts.json` is missing it is automatically created next to the
+plugin (from `accounts.example.json`) — this is your local, git-ignored
+credentials file where you enter non-SSO IMAP passwords. Just edit it.
+
+To set it up manually instead:
 
 ```bash
 cp accounts.example.json accounts.json
@@ -52,8 +56,23 @@ You can have up to 8+ accounts — just add more entries to the array.
 
 ### 3. Install the plugin
 
-In Claude Cowork, go to **Settings → Plugins** and install this `.plugin` file.
-Claude will automatically start the MCP server and load the skills.
+This plugin is a directory (identified by `.claude-plugin/plugin.json`), not a
+packaged file. Install it in Claude Code by adding this folder as a marketplace,
+then installing from it:
+
+```
+/plugin marketplace add "C:\\Users\\Dang Anh Tu\\GitHub\\claude-email-plugin"
+/plugin install claude-email@local-marketplace
+```
+
+Or, to load it for a single session without installing:
+
+```bash
+claude --plugin-dir "C:\\Users\\Dang Anh Tu\\GitHub\\claude-email-plugin"
+```
+
+Once enabled, Claude automatically starts the MCP server and loads the skills.
+Verify with `/mcp` — the **claude-email** server should appear with its tools.
 
 ---
 
