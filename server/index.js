@@ -30,12 +30,12 @@ if (!existsSync(configPath) && existsSync(examplePath)) {
   try {
     copyFileSync(examplePath, configPath);
     process.stderr.write(
-      `[imap-mail] Created ${configPath} from the template. ` +
+      `[claude-email] Created ${configPath} from the template. ` +
         'Edit it to add your accounts, then either fill in "pass" or use the ' +
         'set_credential tool (OS keychain) for non-SSO accounts. Microsoft 365 uses SSO.\n'
     );
   } catch (e) {
-    process.stderr.write(`[imap-mail] Could not create ${configPath}: ${e.message}\n`);
+    process.stderr.write(`[claude-email] Could not create ${configPath}: ${e.message}\n`);
   }
 }
 
@@ -45,11 +45,11 @@ if (existsSync(configPath)) {
     accounts = JSON.parse(readFileSync(configPath, 'utf8'));
     if (!Array.isArray(accounts)) throw new Error('accounts.json must be an array');
   } catch (e) {
-    process.stderr.write(`[imap-mail] Failed to load ${configPath}: ${e.message}\n`);
+    process.stderr.write(`[claude-email] Failed to load ${configPath}: ${e.message}\n`);
   }
 } else {
   process.stderr.write(
-    `[imap-mail] No accounts.json found at ${configPath} and no template to seed it. ` +
+    `[claude-email] No accounts.json found at ${configPath} and no template to seed it. ` +
       'Create accounts.json (an array of account objects) to get started.\n'
   );
 }
@@ -60,7 +60,7 @@ const manager = new ImapManager(accounts, ms365, vault);
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
 const server = new Server(
-  { name: 'imap-mail', version: '0.1.0' },
+  { name: 'claude-email', version: '0.1.0' },
   { capabilities: { tools: {} } }
 );
 
