@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, copyFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ImapManager } from './imap-client.js';
@@ -15,10 +15,29 @@ import { CredentialVault } from './vault.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Load accounts config ──────────────────────────────────────────────────────
-// Priority: IMAP_ACCOUNTS_FILE env var → accounts.json next to this server dir
+// Priority: IMAP_ACCOUNTS_FILE env var → accounts.json next to this server dir.
+// The path is plugin-relative (see .mcp.json: ${CLAUDE_PLUGIN_ROOT}/accounts.json),
+// so it works on any machine the plugin is cloned to.
 const configPath =
   process.env.IMAP_ACCOUNTS_FILE ||
   path.join(__dirname, '..', 'accounts.json');
+const examplePath = path.join(__dirname, '..', 'accounts.example.json');
+
+// First-run bootstrap: on a fresh install accounts.json is gitignored and absent,
+// so seed it from the template. This gives the user a local (never-committed) file
+// to enter their non-SSO IMAP passwords into.
+if (!existsSync(configPath) && existsSync(examplePath)) {
+  try {
+    copyFileSync(examplePath, configPath);
+    process.stderr.write(
+      `[imap-mail] Created ${configPath} from the template. ` +
+        'Edit it to add your accounts, then either fill in "pass" or use the ' +
+        'set_credential tool (OS keychain) for non-SSO accounts. Microsoft 365 uses SSO.\n'
+    );
+  } catch (e) {
+    process.stderr.write(`[imap-mail] Could not create ${configPath}: ${e.message}\n`);
+  }
+}
 
 let accounts = [];
 if (existsSync(configPath)) {
@@ -30,8 +49,8 @@ if (existsSync(configPath)) {
   }
 } else {
   process.stderr.write(
-    `[imap-mail] No accounts.json found at ${configPath}. ` +
-      'Copy accounts.example.json to accounts.json and fill in your credentials.\n'
+    `[imap-mail] No accounts.json found at ${configPath} and no template to seed it. ` +
+      'Create accounts.json (an array of account objects) to get started.\n'
   );
 }
 

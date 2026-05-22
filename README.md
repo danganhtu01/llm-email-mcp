@@ -25,7 +25,12 @@ credential storage).
 
 ### 2. Create your accounts config
 
-Copy the example file and fill in your credentials:
+**You don't have to create this file by hand.** The first time the MCP server
+starts, if `accounts.json` is missing it is automatically created next to the
+plugin (from `accounts.example.json`) — this is your local, git-ignored
+credentials file where you enter non-SSO IMAP passwords. Just edit it.
+
+To set it up manually instead:
 
 ```bash
 cp accounts.example.json accounts.json
