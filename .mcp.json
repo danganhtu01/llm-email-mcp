@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "imap-mail": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/index.js"],
+      "env": {
+        "IMAP_ACCOUNTS_FILE": "${CLAUDE_PLUGIN_ROOT}/accounts.json"
+      }
+    }
+  }
+}

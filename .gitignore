@@ -1,0 +1,15 @@
+# Dependencies (regenerate with `npm install` in server/)
+node_modules/
+
+# Real credentials — NEVER commit. Use accounts.example.json as the template.
+accounts.json
+
+# OAuth2 / SSO token cache (default location is ~/.imap-mail, but ignore any local copy)
+*token-cache*.json
+.imap-mail/
+
+# Logs and OS cruft
+*.log
+.DS_Store
+Thumbs.db
+npm-debug.log*

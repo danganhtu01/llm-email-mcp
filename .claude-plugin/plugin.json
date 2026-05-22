@@ -1,0 +1,9 @@
+{
+  "name": "imap-mail",
+  "version": "0.1.0",
+  "description": "Connect Claude to any IMAP mailbox — search, read, report, get reply suggestions, and surface follow-up reminders across all your email accounts.",
+  "author": {
+    "name": "Admin"
+  },
+  "keywords": ["email", "imap", "inbox", "mailbox", "exchange", "yahoo", "icloud"]
+}

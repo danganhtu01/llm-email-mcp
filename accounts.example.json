@@ -1,0 +1,57 @@
+[
+  {
+    "_comment": "Microsoft 365 / Exchange Online via SSO (OAuth2). Basic-auth IMAP is disabled by Microsoft, so use authType:oauth2. Register an app in Azure AD (Entra), add the delegated permission IMAP.AccessAsUser.All + offline_access, enable 'Allow public client flows', then put its clientId (and tenantId, or 'common') here. Run the ms365_login tool once to sign in. No password is stored.",
+    "name": "Work Microsoft 365",
+    "host": "outlook.office365.com",
+    "port": 993,
+    "secure": true,
+    "user": "you@yourcompany.com",
+    "authType": "oauth2",
+    "clientId": "00000000-0000-0000-0000-000000000000",
+    "tenantId": "common"
+  },
+  {
+    "_comment": "Microsoft Exchange / Outlook with a legacy app password (only works where basic auth is still permitted).",
+    "name": "Work Exchange (password)",
+    "host": "outlook.office365.com",
+    "port": 993,
+    "secure": true,
+    "user": "you@yourcompany.com",
+    "pass": "your-password-or-app-password"
+  },
+  {
+    "_comment": "Yahoo Mail — requires an app password (not your Yahoo login password). Generate one at: https://myaccount.yahoo.com/security",
+    "name": "Yahoo Personal",
+    "host": "imap.mail.yahoo.com",
+    "port": 993,
+    "secure": true,
+    "user": "you@yahoo.com",
+    "pass": "xxxx-xxxx-xxxx-xxxx"
+  },
+  {
+    "_comment": "Apple iCloud Mail — requires an app-specific password (NOT your Apple ID password). Generate one at: https://appleid.apple.com → Sign-In and Security → App-Specific Passwords",
+    "name": "iCloud",
+    "host": "imap.mail.me.com",
+    "port": 993,
+    "secure": true,
+    "user": "you@icloud.com",
+    "pass": "xxxx-xxxx-xxxx-xxxx"
+  },
+  {
+    "_comment": "Generic cPanel / web hosting IMAP, with the password stored in the OS keychain instead of here. Note there is NO 'pass' field: add the account, then run the set_credential tool to store the password securely. Optionally set 'loginTimeout' (ms) to abort a slow login.",
+    "name": "cPanel Hosting",
+    "host": "mail.yourdomain.com",
+    "port": 993,
+    "secure": true,
+    "user": "you@yourdomain.com"
+  },
+  {
+    "_comment": "Self-hosted or custom Exchange on-premises server",
+    "name": "On-Prem Exchange",
+    "host": "mail.yourcompany.com",
+    "port": 993,
+    "secure": true,
+    "user": "DOMAIN\\username",
+    "pass": "your-password"
+  }
+]
