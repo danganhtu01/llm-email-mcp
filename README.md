@@ -78,9 +78,28 @@ Verify with `/mcp` — the **claude-email** server should appear with its tools.
 
 ## Provider-specific notes
 
-### Microsoft 365 / Exchange Online — SSO (OAuth2) ✅ recommended
+> ### ⚠️ Prefer plain IMAP over Exchange/Microsoft 365 where you can
+> If a mailbox can be reached over **standard IMAP with an app password**, that
+> path is **recommended over the Microsoft 365 / Exchange (OAuth2) path**. IMAP is
+> simpler and more robust here:
+> - **No Azure setup** — no app registration, client/tenant IDs, admin consent, or
+>   "allow public client flows" toggles.
+> - **No interactive sign-in or token expiry** — you store one app password in the
+>   OS keychain once; there's no device-code dance and no refresh-token cache to go
+>   stale or get revoked.
+> - **Fewer moving parts to break** — the Exchange path depends on Microsoft tenant
+>   policy that can change underneath you.
+>
+> Use the Microsoft 365 / Exchange (OAuth2) path **only when you have to** — i.e.
+> for Exchange Online mailboxes, where Microsoft has disabled basic-auth IMAP and
+> OAuth2 is the *only* option. For Gmail, Yahoo, iCloud, cPanel/web hosting, or any
+> mailbox that still allows app passwords, add it as a plain `imap` account.
+
+### Microsoft 365 / Exchange Online — SSO (OAuth2)
 Microsoft has **disabled basic-auth (password) IMAP** for Exchange Online, so a
-password will not work. Use single sign-on instead:
+password will not work and OAuth2 SSO is the only option for these mailboxes. If
+your mailbox is *not* on Exchange Online, prefer a plain IMAP account (see the
+warning above). To set up Exchange Online SSO:
 
 - **Host:** `outlook.office365.com`, port `993`, secure `true`
 - In `accounts.json`, set `"authType": "oauth2"` and supply `clientId` /
@@ -136,7 +155,10 @@ mode `600`), **outside** this plugin folder — override with the
 | `read_email` | Fetch full email body by UID |
 | `get_recent_emails` | Get latest emails across all accounts |
 | `get_attachments` | List or download attachments to a local folder |
-| `ms365_login` | Start Microsoft 365 SSO (device-code flow) for an OAuth2 account |
+| `mark_read` | Mark one or more emails read/unread (sets/clears the IMAP `\Seen` flag) |
+| `add_account` | Add a new Microsoft 365 (SSO) or IMAP account to `accounts.json` |
+| `login_accounts` | Sign in every Microsoft 365 account that isn't authenticated yet |
+| `ms365_login` | Start Microsoft 365 SSO (device-code flow) for one OAuth2 account |
 | `set_credential` | Store an account's password securely in the OS keychain |
 | `list_credentials` | Show how each account authenticates (never reveals passwords) |
 | `test_credential` | Verify an account can actually log in with its stored credential |
