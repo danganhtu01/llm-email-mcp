@@ -178,21 +178,28 @@ export class ImapManager {
         const emails = await this.withClient(account, async (client) => {
           await client.mailboxOpen(folder);
 
-          // Build search criteria
-          const criteria = [];
-          if (unread_only) criteria.push('UNSEEN');
+          // Build the search query. IMPORTANT: imapflow uses an OBJECT query
+          // ({ seen, since, or, all, ... }), NOT node-imap-style arrays like
+          // ['UNSEEN', ['SINCE', date]]. Passing arrays makes client.search()
+          // return `false`, which then blows up at `uids.slice(...)` with
+          // "uids.slice is not a function". Top-level keys are AND-ed together.
+          const searchQuery = {};
+          if (unread_only) searchQuery.seen = false;
           if (since_days) {
             const since = new Date();
             since.setDate(since.getDate() - since_days);
-            criteria.push(['SINCE', since]);
+            searchQuery.since = since;
           }
           if (query) {
-            // Search subject OR from address
-            criteria.push(['OR', ['SUBJECT', query], ['FROM', query]]);
+            // Match the keyword in the subject OR the sender.
+            searchQuery.or = [{ subject: query }, { from: query }];
           }
+          if (Object.keys(searchQuery).length === 0) searchQuery.all = true;
 
-          const searchCriteria = criteria.length ? criteria : ['ALL'];
-          const uids = await client.search(searchCriteria, { uid: true });
+          // imapflow resolves to an array of UIDs, or `false` on a failed/empty
+          // search — normalize so .slice is always safe.
+          const found = await client.search(searchQuery, { uid: true });
+          const uids = Array.isArray(found) ? found : [];
 
           // Take most recent N
           const slice = uids.slice(-Math.min(limit, uids.length));
