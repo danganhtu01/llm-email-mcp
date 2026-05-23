@@ -117,6 +117,25 @@ The OAuth token cache is stored at `~/.imap-mail/ms365-token-cache.json` (file
 mode `600`), **outside** this plugin folder — override with the
 `IMAP_TOKEN_CACHE_FILE` env var.
 
+### Sending email (`send_email` / `create_draft`)
+Sending uses SMTP, which is separate from the IMAP read path:
+
+- **Microsoft 365 (OAuth2):** sending needs the `SMTP.Send` scope in addition to
+  `IMAP.AccessAsUser.All`. Both live on the same `outlook.office365.com` resource,
+  so a single sign-in consents to both. **Existing users must re-run
+  `login_accounts` once** after this update so the cached token gains `SMTP.Send`
+  — until then `send_email` returns a "not signed in" error. (Also add the
+  delegated **SMTP.Send** permission to your Azure app registration alongside
+  IMAP.AccessAsUser.All.) SMTP host defaults to `smtp.office365.com:587` (STARTTLS).
+- **Password / plain IMAP accounts:** SMTP host defaults to the account's IMAP
+  `host`. If your provider's SMTP host or port differ, add `smtpHost`, `smtpPort`
+  (default 587), and `smtpSecure` (default `true` only on port 465) to the
+  account in `accounts.json`.
+
+A copy of every sent message is appended to the **Sent** folder by default
+(`save_to_sent: false` to skip). Replies (`reply_to_uid`) add threading headers
+and quote the original; forwards (`forward_uid`) attach the original as a `.eml`.
+
 ### Microsoft Exchange (legacy / on-premises)
 - **Host:** `mail.yourcompany.com` (on-premises Exchange — ask your IT team)
 - Where basic auth is still permitted, use your password or an app password
@@ -156,6 +175,14 @@ mode `600`), **outside** this plugin folder — override with the
 | `get_recent_emails` | Get latest emails across all accounts |
 | `get_attachments` | List or download attachments to a local folder |
 | `mark_read` | Mark one or more emails read/unread (sets/clears the IMAP `\Seen` flag) |
+| `move_email` | Move emails between folders (IMAP UID MOVE; destination must already exist) |
+| `send_email` | Send a new email, reply, or forward via SMTP (M365 OAuth2 or password auth) |
+| `flag_email` | Set/clear the `\Flagged` (starred / follow-up) flag on emails |
+| `delete_email` | Delete emails — move to Trash by default, or expunge with `permanent:true` |
+| `create_folder` | Create a new IMAP folder/mailbox |
+| `delete_folder` | Delete an IMAP folder/mailbox |
+| `rename_folder` | Rename or move an IMAP folder/mailbox |
+| `create_draft` | Save a composed message to the Drafts folder without sending |
 | `add_account` | Add a new Microsoft 365 (SSO) or IMAP account to `accounts.json` |
 | `login_accounts` | Sign in every Microsoft 365 account that isn't authenticated yet |
 | `ms365_login` | Start Microsoft 365 SSO (device-code flow) for one OAuth2 account |

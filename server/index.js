@@ -321,6 +321,193 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
       },
     },
+    {
+      name: 'move_email',
+      description:
+        'Move one or more emails from one folder to another via IMAP UID MOVE (falls back to COPY+delete on servers without MOVE). The destination folder must already exist — it is never auto-created.',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'source_folder', 'destination_folder', 'uids'],
+        properties: {
+          account: { type: 'string', description: 'Account name as configured in accounts.json' },
+          source_folder: { type: 'string', description: 'Current folder (e.g. INBOX)' },
+          destination_folder: {
+            type: 'string',
+            description: 'Target folder (e.g. "2 CT", "Junk Email"). Must already exist.',
+          },
+          uids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'One or more UIDs to move (as returned by search_emails)',
+          },
+        },
+      },
+    },
+    {
+      name: 'send_email',
+      description:
+        'Send a new email, reply, or forward via SMTP. Microsoft 365 accounts use the cached OAuth2 token (SMTP.Send scope — re-run login_accounts once after updating to grant it); password accounts use SMTP AUTH (set smtpHost/smtpPort in accounts.json if they differ from the IMAP host). Set reply_to_uid to thread a reply (adds In-Reply-To/References and quotes the original), or forward_uid to forward the original as a .eml attachment. A copy is saved to the Sent folder by default.',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'to'],
+        properties: {
+          account: { type: 'string', description: 'Account name (must support SMTP — M365/OAuth2 or an IMAP account with SMTP)' },
+          to: { type: 'array', items: { type: 'string' }, description: 'Recipient email addresses' },
+          subject: { type: 'string', description: 'Subject line (auto "Re:"/"Fwd:" if omitted on a reply/forward)' },
+          body: { type: 'string', description: 'Plain-text body' },
+          html_body: { type: 'string', description: 'HTML body (rich-text alternative)' },
+          cc: { type: 'array', items: { type: 'string' }, description: 'CC recipients' },
+          bcc: { type: 'array', items: { type: 'string' }, description: 'BCC recipients' },
+          reply_to_uid: {
+            type: 'string',
+            description: 'UID of the message being replied to (sets threading headers + quotes the original)',
+          },
+          reply_folder: {
+            type: 'string',
+            description: 'Folder containing reply_to_uid (default INBOX)',
+          },
+          forward_uid: {
+            type: 'string',
+            description: 'UID of the message to forward (attached as a .eml / message/rfc822)',
+          },
+          forward_folder: {
+            type: 'string',
+            description: 'Folder containing forward_uid (default INBOX)',
+          },
+          attachments: {
+            type: 'array',
+            description: 'Additional file attachments',
+            items: {
+              type: 'object',
+              required: ['filename', 'content_base64'],
+              properties: {
+                filename: { type: 'string' },
+                content_base64: { type: 'string', description: 'Base64-encoded file contents' },
+                mime_type: { type: 'string', description: 'Optional MIME type' },
+              },
+            },
+          },
+          save_to_sent: {
+            type: 'boolean',
+            description: 'Append a copy to the Sent folder after sending (default true)',
+          },
+        },
+      },
+    },
+    {
+      name: 'flag_email',
+      description:
+        'Set or clear the IMAP \\Flagged flag on one or more emails (the "starred / follow-up" marker) via UID-based STORE. Reversible and non-destructive.',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'folder', 'uids', 'flagged'],
+        properties: {
+          account: { type: 'string', description: 'Account name as configured in accounts.json' },
+          folder: { type: 'string', description: 'Folder the emails are in (e.g. INBOX)' },
+          uids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'One or more UIDs to update',
+          },
+          flagged: {
+            type: 'boolean',
+            description: 'true = add \\Flagged; false = remove it',
+          },
+        },
+      },
+    },
+    {
+      name: 'delete_email',
+      description:
+        'Delete one or more emails. By default (permanent:false) they are moved to the Trash/Deleted Items folder, which is reversible. Pass permanent:true to expunge them irreversibly. The safe move-to-trash default is used unless permanent is explicitly true.',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'folder', 'uids'],
+        properties: {
+          account: { type: 'string', description: 'Account name as configured in accounts.json' },
+          folder: { type: 'string', description: 'Current folder the emails are in' },
+          uids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'One or more UIDs to delete',
+          },
+          permanent: {
+            type: 'boolean',
+            description: 'false (default) = move to Trash/Deleted Items; true = expunge immediately (irreversible)',
+          },
+        },
+      },
+    },
+    {
+      name: 'create_folder',
+      description: 'Create a new IMAP folder/mailbox. Nested paths use the server hierarchy separator (e.g. "Archive/2026").',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'path'],
+        properties: {
+          account: { type: 'string', description: 'Account name' },
+          path: { type: 'string', description: 'Full folder path to create (e.g. "2 CT", "INBOX/Receipts")' },
+        },
+      },
+    },
+    {
+      name: 'delete_folder',
+      description: 'Delete an IMAP folder/mailbox. Errors (surfaced as-is) if the folder has children or is a system folder.',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'path'],
+        properties: {
+          account: { type: 'string', description: 'Account name' },
+          path: { type: 'string', description: 'Folder path to delete' },
+        },
+      },
+    },
+    {
+      name: 'rename_folder',
+      description: 'Rename or move an IMAP folder/mailbox to a new path.',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'old_path', 'new_path'],
+        properties: {
+          account: { type: 'string', description: 'Account name' },
+          old_path: { type: 'string', description: 'Current folder path' },
+          new_path: { type: 'string', description: 'New folder path' },
+        },
+      },
+    },
+    {
+      name: 'create_draft',
+      description:
+        'Compose a message and save it to the Drafts folder without sending (IMAP APPEND with the \\Draft flag). Accepts the same fields as send_email (to/subject/body/html_body/cc/bcc/reply_to_uid/attachments).',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'to'],
+        properties: {
+          account: { type: 'string', description: 'Account name' },
+          to: { type: 'array', items: { type: 'string' }, description: 'Recipient email addresses' },
+          subject: { type: 'string', description: 'Subject line' },
+          body: { type: 'string', description: 'Plain-text body' },
+          html_body: { type: 'string', description: 'HTML body' },
+          cc: { type: 'array', items: { type: 'string' }, description: 'CC recipients' },
+          bcc: { type: 'array', items: { type: 'string' }, description: 'BCC recipients' },
+          reply_to_uid: { type: 'string', description: 'UID of a message this draft replies to (sets threading headers + quotes original)' },
+          reply_folder: { type: 'string', description: 'Folder containing reply_to_uid (default INBOX)' },
+          attachments: {
+            type: 'array',
+            description: 'File attachments',
+            items: {
+              type: 'object',
+              required: ['filename', 'content_base64'],
+              properties: {
+                filename: { type: 'string' },
+                content_base64: { type: 'string', description: 'Base64-encoded file contents' },
+                mime_type: { type: 'string', description: 'Optional MIME type' },
+              },
+            },
+          },
+        },
+      },
+    },
   ],
 }));
 
@@ -489,6 +676,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           args.uids,
           args.read
         );
+        break;
+
+      case 'move_email':
+        result = await manager.moveEmail(
+          args.account,
+          args.source_folder,
+          args.destination_folder,
+          args.uids
+        );
+        break;
+
+      case 'send_email':
+        result = await manager.sendEmail(args.account, args);
+        break;
+
+      case 'flag_email':
+        result = await manager.flagEmail(
+          args.account,
+          args.folder,
+          args.uids,
+          args.flagged
+        );
+        break;
+
+      case 'delete_email':
+        result = await manager.deleteEmail(
+          args.account,
+          args.folder,
+          args.uids,
+          args.permanent === true
+        );
+        break;
+
+      case 'create_folder':
+        result = await manager.createFolder(args.account, args.path);
+        break;
+
+      case 'delete_folder':
+        result = await manager.deleteFolder(args.account, args.path);
+        break;
+
+      case 'rename_folder':
+        result = await manager.renameFolder(
+          args.account,
+          args.old_path,
+          args.new_path
+        );
+        break;
+
+      case 'create_draft':
+        result = await manager.createDraft(args.account, args);
         break;
 
       case 'delete_credential': {

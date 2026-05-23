@@ -17,6 +17,22 @@ const IMAP_SCOPES = [
   'offline_access',
 ];
 
+// SMTP send scope (used by send_email). It lives on the SAME resource as the
+// IMAP scope (outlook.office365.com), so a single device-code login can consent
+// to both at once and one cached refresh token covers IMAP reads and SMTP sends.
+export const SMTP_SCOPES = [
+  'https://outlook.office365.com/SMTP.Send',
+  'offline_access',
+];
+
+// Scopes requested at sign-in time. Bundling IMAP + SMTP here means existing
+// users who re-run login_accounts after this update grant both in one approval.
+const LOGIN_SCOPES = [
+  'https://outlook.office365.com/IMAP.AccessAsUser.All',
+  'https://outlook.office365.com/SMTP.Send',
+  'offline_access',
+];
+
 // Token cache lives outside the (OneDrive-synced) plugin folder by default.
 const DEFAULT_CACHE_FILE =
   process.env.IMAP_TOKEN_CACHE_FILE ||
@@ -107,14 +123,14 @@ export class Ms365Auth {
 
   // Returns a valid access token, refreshing silently from cache. Throws
   // Ms365AuthRequiredError if the user hasn't completed the device-code login yet.
-  async getAccessToken(account) {
+  async getAccessToken(account, scopes = IMAP_SCOPES) {
     const app = this._getApp(account);
     const cached = await this._findCachedAccount(app, account.user);
     if (!cached) throw new Ms365AuthRequiredError(account.name);
     try {
       const result = await app.acquireTokenSilent({
         account: cached,
-        scopes: IMAP_SCOPES,
+        scopes,
       });
       return result.accessToken;
     } catch (_) {
@@ -144,7 +160,7 @@ export class Ms365Auth {
 
     const loginPromise = app
       .acquireTokenByDeviceCode({
-        scopes: IMAP_SCOPES,
+        scopes: LOGIN_SCOPES,
         deviceCodeCallback: (resp) => {
           resolveCode({
             account: account.name,
