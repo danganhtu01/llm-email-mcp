@@ -299,6 +299,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
       },
     },
+    {
+      name: 'mark_read',
+      description:
+        'Mark one or more emails as read or unread by setting or clearing the IMAP \\Seen flag via UID-based STORE. Accepts a batch of UIDs in one call. Reversible and non-destructive. Works for all IMAP/Exchange/M365 accounts (uses the existing OAuth2 token; no extra scope needed).',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'folder', 'uids', 'read'],
+        properties: {
+          account: { type: 'string', description: 'Account name as configured in accounts.json' },
+          folder: { type: 'string', description: 'Folder the emails are in (e.g. INBOX)' },
+          uids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'One or more email UIDs to update (as returned by search_emails)',
+          },
+          read: {
+            type: 'boolean',
+            description: 'true = mark as read (+FLAGS \\Seen); false = mark as unread (-FLAGS \\Seen)',
+          },
+        },
+      },
+    },
   ],
 }));
 
@@ -459,6 +481,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         break;
       }
+
+      case 'mark_read':
+        result = await manager.markRead(
+          args.account,
+          args.folder,
+          args.uids,
+          args.read
+        );
+        break;
 
       case 'delete_credential': {
         const account = manager.getAccount(args.account);

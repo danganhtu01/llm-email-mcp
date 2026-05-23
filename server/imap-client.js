@@ -275,6 +275,62 @@ export class ImapManager {
     });
   }
 
+  // Mark one or more messages read/unread by setting or clearing the \Seen flag
+  // via UID-based IMAP STORE. read=true → +FLAGS (\Seen); read=false → -FLAGS.
+  async markRead(accountName, folder, uids, read) {
+    const account = this.getAccount(accountName);
+    if (!Array.isArray(uids) || uids.length === 0) {
+      throw new Error('"uids" must be a non-empty array of email UIDs.');
+    }
+    if (typeof read !== 'boolean') {
+      throw new Error('"read" must be a boolean (true = mark read, false = mark unread).');
+    }
+
+    return this.withClient(account, async (client) => {
+      // STORE requires the folder to be SELECTed read-write. mailboxOpen issues
+      // SELECT (read-write) by default — do NOT pass { readOnly: true } (EXAMINE).
+      const mbox = await client.mailboxOpen(folder);
+      // Comma-separated UID set → single round-trip for the whole batch.
+      const range = uids.map((u) => String(u)).join(',');
+
+      try {
+        if (mbox && mbox.readOnly) {
+          return {
+            ok: false,
+            updated: 0,
+            failed: uids.length,
+            message: `Folder "${folder}" opened read-only; cannot change flags.`,
+          };
+        }
+        const applied = read
+          ? await client.messageFlagsAdd(range, ['\\Seen'], { uid: true })
+          : await client.messageFlagsRemove(range, ['\\Seen'], { uid: true });
+
+        if (applied) {
+          return {
+            ok: true,
+            updated: uids.length,
+            failed: 0,
+            message: `Marked ${uids.length} message(s) as ${read ? 'read' : 'unread'} in "${folder}".`,
+          };
+        }
+        return {
+          ok: false,
+          updated: 0,
+          failed: uids.length,
+          message: `Server did not apply the \\Seen change in "${folder}" (mailbox may be read-only).`,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          updated: 0,
+          failed: uids.length,
+          message: `Failed to update flags in "${folder}": ${err.message}`,
+        };
+      }
+    });
+  }
+
   async getAttachments(accountName, folder, uid, downloadDir) {
     const account = this.getAccount(accountName);
     return this.withClient(account, async (client) => {
