@@ -749,6 +749,12 @@ export class ImapManager {
   // Resolve SMTP connection settings + auth for an account. M365/OAuth2 accounts
   // use XOAUTH2 with an SMTP-scoped token; password accounts use SMTP AUTH.
   async _smtpTransport(account) {
+    // Bound every phase so a wrong host/port fails fast instead of hanging.
+    const timeouts = {
+      connectionTimeout: 20000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
+    };
     if (isOAuthAccount(account)) {
       const accessToken = await this.ms365.getAccessToken(account, SMTP_SCOPES);
       return nodemailer.createTransport({
@@ -756,6 +762,7 @@ export class ImapManager {
         port: account.smtpPort || 587,
         secure: account.smtpSecure ?? false, // STARTTLS on 587
         auth: { type: 'OAuth2', user: account.user, accessToken },
+        ...timeouts,
       });
     }
     const pass = account.pass || this.vault.get(account.name);
@@ -772,6 +779,7 @@ export class ImapManager {
       port,
       secure: account.smtpSecure ?? port === 465,
       auth: { user: account.user, pass },
+      ...timeouts,
     });
   }
 
