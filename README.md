@@ -136,6 +136,21 @@ A copy of every sent message is appended to the **Sent** folder by default
 (`save_to_sent: false` to skip). Replies (`reply_to_uid`) add threading headers
 and quote the original; forwards (`forward_uid`) attach the original as a `.eml`.
 
+### Marking Outlook read/unread by Graph ID (`mark_read_graph`)
+Messages surfaced by Microsoft's **Graph API** (e.g. via a read-only connector)
+are addressed by a **Graph message ID** (`AAMkAG…`), not an IMAP UID, so the
+UID-based `mark_read` can't act on them. `mark_read_graph` calls
+`PATCH /v1.0/me/messages/{id}` with `{ isRead }` instead.
+
+Graph is a **different Azure resource** (`graph.microsoft.com`) from IMAP/SMTP
+(`outlook.office365.com`), and a single device-code sign-in cannot consent to
+scopes across two resources. So Graph needs its **own one-time consent**: run
+`ms365_login_graph` for the account once (grants `Mail.ReadWrite`), after which
+`mark_read_graph` acquires Graph tokens silently from the shared refresh-token
+cache. Add the delegated **Mail.ReadWrite** permission to your Azure app
+registration alongside IMAP.AccessAsUser.All. M365/OAuth2 accounts only — IMAP
+accounts already toggle read state via `mark_read`.
+
 ### Microsoft Exchange (legacy / on-premises)
 - **Host:** `mail.yourcompany.com` (on-premises Exchange — ask your IT team)
 - Where basic auth is still permitted, use your password or an app password
@@ -175,6 +190,8 @@ and quote the original; forwards (`forward_uid`) attach the original as a `.eml`
 | `get_recent_emails` | Get latest emails across all accounts |
 | `get_attachments` | List or download attachments to a local folder |
 | `mark_read` | Mark one or more emails read/unread (sets/clears the IMAP `\Seen` flag) |
+| `mark_read_graph` | Mark Outlook/Exchange messages read/unread by **Graph message ID** (for M365 messages from the Cowork connector); needs `ms365_login_graph` once |
+| `ms365_login_graph` | One-time Microsoft Graph (Mail.ReadWrite) consent for an M365 account, enabling `mark_read_graph` |
 | `move_email` | Move emails between folders (IMAP UID MOVE; destination must already exist) |
 | `send_email` | Send a new email, reply, or forward via SMTP (M365 OAuth2 or password auth) |
 | `flag_email` | Set/clear the `\Flagged` (starred / follow-up) flag on emails |

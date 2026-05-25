@@ -45,10 +45,11 @@ await c.connect(t);
 
 const tools = (await c.listTools()).tools.map((x) => x.name);
 console.log('Tool count:', tools.length);
-check('tool count is 22', tools.length === 22, `(got ${tools.length})`);
+check('tool count is 24', tools.length === 24, `(got ${tools.length})`);
 for (const name of [
   'move_email', 'send_email', 'flag_email', 'delete_email',
   'create_folder', 'delete_folder', 'rename_folder', 'create_draft',
+  'mark_read_graph', 'ms365_login_graph',
 ]) {
   check(`tool registered: ${name}`, tools.includes(name));
 }
@@ -76,6 +77,13 @@ check('rename_folder missing new_path rejected', r.isError, `→ ${r.p}`);
 
 r = await call(c, 'move_email', { account: 'Nope', source_folder: 'INBOX', destination_folder: 'X', uids: ['1'] });
 check('unknown account rejected', r.isError, `→ ${r.p}`);
+
+// mark_read_graph: rejects non-OAuth (password/IMAP) accounts before any network call.
+r = await call(c, 'mark_read_graph', { account: 'TmpImap', message_ids: ['AAMkAG'], read: true });
+check('mark_read_graph rejects non-M365 account', r.isError, `→ ${r.p}`);
+
+r = await call(c, 'mark_read_graph', { account: 'TmpImap', message_ids: [], read: true });
+check('mark_read_graph empty message_ids rejected', r.isError, `→ ${r.p}`);
 
 await c.close();
 console.log('─'.repeat(60));

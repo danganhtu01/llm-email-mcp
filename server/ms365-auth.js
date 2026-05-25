@@ -27,9 +27,32 @@ export const SMTP_SCOPES = [
 
 // Scopes requested at sign-in time. Bundling IMAP + SMTP here means existing
 // users who re-run login_accounts after this update grant both in one approval.
+// NOTE: only outlook.office365.com scopes belong here — see GRAPH_SCOPES below
+// for why Microsoft Graph can't be added to this list.
 const LOGIN_SCOPES = [
   'https://outlook.office365.com/IMAP.AccessAsUser.All',
   'https://outlook.office365.com/SMTP.Send',
+  'offline_access',
+];
+
+// Microsoft Graph scopes for toggling Outlook/Exchange read state via the Graph
+// REST API (mark_read_graph). Graph is a DIFFERENT resource (graph.microsoft.com)
+// than the IMAP/SMTP scopes above (outlook.office365.com). Azure AD will not issue
+// one access token spanning two resources, and MSAL's device-code flow rejects a
+// request that mixes resources — so Graph CANNOT be merged into LOGIN_SCOPES
+// without breaking the existing IMAP/SMTP sign-in. Instead Graph gets its own
+// one-time device-code consent (the ms365_login_graph tool); afterwards the shared
+// cached refresh token lets us acquire Graph tokens silently via
+// getAccessToken(account, GRAPH_SCOPES).
+export const GRAPH_SCOPES = [
+  'https://graph.microsoft.com/Mail.ReadWrite',
+  'offline_access',
+];
+
+// Scopes presented at the dedicated Graph sign-in (adds Mail.Read for parity).
+export const GRAPH_LOGIN_SCOPES = [
+  'https://graph.microsoft.com/Mail.ReadWrite',
+  'https://graph.microsoft.com/Mail.Read',
   'offline_access',
 ];
 
@@ -142,7 +165,7 @@ export class Ms365Auth {
   // Starts the device-code flow and resolves immediately with the code + URL to
   // show the user. Token acquisition continues in the background and is cached on
   // completion, so later IMAP calls succeed silently.
-  async beginDeviceLogin(account) {
+  async beginDeviceLogin(account, scopes = LOGIN_SCOPES) {
     if (!isOAuthAccount(account)) {
       throw new Error(`Account "${account.name}" is not configured for OAuth2/SSO.`);
     }
@@ -160,7 +183,7 @@ export class Ms365Auth {
 
     const loginPromise = app
       .acquireTokenByDeviceCode({
-        scopes: LOGIN_SCOPES,
+        scopes,
         deviceCodeCallback: (resp) => {
           resolveCode({
             account: account.name,

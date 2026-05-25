@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ImapManager } from './imap-client.js';
-import { Ms365Auth, isOAuthAccount } from './ms365-auth.js';
+import { Ms365Auth, isOAuthAccount, GRAPH_LOGIN_SCOPES } from './ms365-auth.js';
 import { CredentialVault } from './vault.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -508,6 +508,45 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
       },
     },
+    {
+      name: 'mark_read_graph',
+      description:
+        'Mark one or more Outlook/Exchange messages read or unread via the Microsoft Graph REST API, addressing them by Graph message ID (the "id" field from outlook_email_search / Graph) rather than IMAP UID. Use this for Outlook messages surfaced by the read-only Cowork M365 connector. Microsoft 365 / OAuth2 accounts only — needs a one-time Graph consent via ms365_login_graph (IMAP accounts use mark_read with their UID instead).',
+      inputSchema: {
+        type: 'object',
+        required: ['account', 'message_ids', 'read'],
+        properties: {
+          account: {
+            type: 'string',
+            description: 'Account name (must be a Microsoft 365 / OAuth2 account, e.g. "Admin")',
+          },
+          message_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'One or more Graph message IDs (e.g. "AAMkAGVm…") from outlook_email_search',
+          },
+          read: {
+            type: 'boolean',
+            description: 'true = mark as read (isRead:true); false = mark as unread',
+          },
+        },
+      },
+    },
+    {
+      name: 'ms365_login_graph',
+      description:
+        'Grant Microsoft Graph (Mail.ReadWrite) consent for an M365 account via the device-code flow, so mark_read_graph can toggle Outlook/Exchange read state. This is a SEPARATE one-time sign-in from the IMAP/SMTP login (Graph is a different Azure resource and cannot share that consent). Returns a short code + URL to approve in a browser; afterwards Graph tokens are acquired silently.',
+      inputSchema: {
+        type: 'object',
+        required: ['account'],
+        properties: {
+          account: {
+            type: 'string',
+            description: 'Name of the Microsoft 365 / OAuth2 account to grant Graph access for',
+          },
+        },
+      },
+    },
   ],
 }));
 
@@ -728,6 +767,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'create_draft':
         result = await manager.createDraft(args.account, args);
         break;
+
+      case 'mark_read_graph':
+        result = await manager.graphMarkRead(
+          args.account,
+          args.message_ids,
+          args.read
+        );
+        break;
+
+      case 'ms365_login_graph': {
+        const account = manager.getAccount(args.account);
+        const info = await ms365.beginDeviceLogin(account, GRAPH_LOGIN_SCOPES);
+        result = {
+          status: 'awaiting_user',
+          instructions: `Open ${info.verificationUri} and enter code ${info.userCode} to grant Microsoft Graph (Mail.ReadWrite) access as ${info.user}. Approve within ${Math.round(info.expiresInSeconds / 60)} minutes; the token is cached automatically. After approval, mark_read_graph will work for this account.`,
+          ...info,
+        };
+        break;
+      }
 
       case 'delete_credential': {
         const account = manager.getAccount(args.account);

@@ -4,7 +4,7 @@ import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { createWriteStream, mkdirSync } from 'fs';
 import path from 'path';
-import { Ms365Auth, isOAuthAccount, SMTP_SCOPES } from './ms365-auth.js';
+import { Ms365Auth, isOAuthAccount, SMTP_SCOPES, GRAPH_SCOPES } from './ms365-auth.js';
 import { CredentialVault } from './vault.js';
 
 // Abort the connection if greeting + login don't complete within this window.
@@ -287,6 +287,79 @@ export class ImapManager {
       onLabel: 'read',
       offLabel: 'unread',
     });
+  }
+
+  // Mark Outlook/Exchange messages read/unread via the Microsoft Graph REST API,
+  // by Graph message ID (the `id` returned by outlook_email_search / Graph), not
+  // by IMAP UID. This is the path for messages surfaced by the read-only Cowork
+  // M365 connector, which exposes Graph IDs rather than IMAP UIDs. Requires a
+  // Graph (Mail.ReadWrite) token — granted once via ms365_login_graph; thereafter
+  // acquired silently from the shared refresh-token cache.
+  async graphMarkRead(accountName, messageIds, read) {
+    const account = this.getAccount(accountName);
+    if (!isOAuthAccount(account)) {
+      throw new Error(
+        `mark_read_graph only works with Microsoft 365 / OAuth2 accounts. "${account.name}" is a password/IMAP account — use mark_read with its UID instead.`
+      );
+    }
+    if (!Array.isArray(messageIds) || messageIds.length === 0) {
+      throw new Error('"message_ids" must be a non-empty array of Graph message IDs.');
+    }
+    if (typeof read !== 'boolean') {
+      throw new Error('"read" must be a boolean (true = mark read, false = mark unread).');
+    }
+
+    let token;
+    try {
+      token = await this.ms365.getAccessToken(account, GRAPH_SCOPES);
+    } catch (e) {
+      return {
+        ok: false,
+        updated: 0,
+        error: `Microsoft Graph is not authorized for "${account.name}" (${e.message}). Run ms365_login_graph for this account once to grant Mail.ReadWrite, then retry.`,
+      };
+    }
+
+    let updated = 0;
+    const failures = [];
+    for (const id of messageIds) {
+      try {
+        const res = await fetch(
+          `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(id)}`,
+          {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ isRead: read }),
+          }
+        );
+        if (res.ok) {
+          updated++;
+        } else {
+          const body = await res.text().catch(() => '');
+          failures.push({ id, status: res.status, error: body.slice(0, 300) });
+        }
+      } catch (err) {
+        failures.push({ id, error: err.message });
+      }
+    }
+
+    if (failures.length === 0) {
+      return {
+        ok: true,
+        updated,
+        message: `Marked ${updated} Outlook message(s) as ${read ? 'read' : 'unread'} via Microsoft Graph.`,
+      };
+    }
+    return {
+      ok: updated > 0,
+      updated,
+      failed: failures.length,
+      errors: failures,
+      message: `Updated ${updated}/${messageIds.length} via Graph; ${failures.length} failed.`,
+    };
   }
 
   // Set or clear the \Flagged flag (the "starred / follow-up" marker) on a batch
