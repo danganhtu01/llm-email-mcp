@@ -4,6 +4,10 @@ node_modules/
 # Real credentials — NEVER commit. Use accounts.example.json as the template.
 accounts.json
 
+# HTTP launcher holds a secret MCP_HTTP_TOKEN. Use start-http-server.vbs.example
+# as the template; keep the real one local.
+start-http-server.vbs
+
 # OAuth2 / SSO token cache (default location is ~/.imap-mail, but ignore any local copy)
 *token-cache*.json
 .imap-mail/

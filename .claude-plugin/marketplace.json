@@ -1,0 +1,13 @@
+{
+  "name": "local-marketplace",
+  "owner": {
+    "name": "Admin"
+  },
+  "plugins": [
+    {
+      "name": "claude-email",
+      "source": "./",
+      "description": "Connect Claude to any IMAP mailbox — search, read, report, get reply suggestions, and surface follow-up reminders across all your email accounts."
+    }
+  ]
+}

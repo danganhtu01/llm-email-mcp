@@ -76,6 +76,54 @@ Verify with `/mcp` — the **claude-email** server should appear with its tools.
 
 ---
 
+## Running modes: stdio vs HTTP (plugin vs connector vs gallery)
+
+The server speaks MCP over two transports. **stdio is the default**; HTTP is opt-in.
+
+| You want it to appear as… | Use | How it runs |
+|---|---|---|
+| A **plugin** (tools **+ skills**, under `/plugin` and `/mcp`) | Install via marketplace (above) | stdio, launched per-session by Claude Code |
+| A **connector** (tools only, under `/mcp`) | `claude mcp add -s user claude-email -- node "<path>/server/index.js"` | stdio, launched per-session |
+| A **custom connector in the remote Connectors gallery** | Run in HTTP mode (below) + add its URL | HTTP, persistent local service |
+
+> The plugin and the stdio connector are the same server; don't enable both at
+> once or every tool appears twice. A **stdio** server can never show up in the
+> remote Connectors *gallery* (the page listing Notion/Gmail/etc.) — that page
+> only lists **URL-based** connectors, which is what HTTP mode is for.
+
+### HTTP mode
+
+Set `MCP_HTTP_PORT` and the server runs as a persistent service exposing the
+Streamable HTTP transport at `http://127.0.0.1:<port>/mcp` instead of stdio:
+
+```bash
+MCP_HTTP_PORT=3939 node server/index.js
+```
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `MCP_HTTP_PORT` | *(unset → stdio)* | Port to listen on. Setting it enables HTTP mode. |
+| `MCP_HTTP_HOST` | `127.0.0.1` | Bind address. Keep it loopback. |
+| `MCP_HTTP_PATH` | `/mcp` | URL path for the MCP endpoint. |
+| `MCP_HTTP_TOKEN` | *(none)* | If set, every request must send `Authorization: Bearer <token>`. |
+| `MCP_HTTP_ALLOW_ORIGIN` | *(none → CORS off)* | Set to a specific origin to enable CORS for it. |
+
+On Windows, copy [`start-http-server.vbs.example`](start-http-server.vbs.example)
+to `start-http-server.vbs`, fill in the path/port/token, and double-click it to
+run hidden (add a shortcut in `shell:startup` to auto-start at login). The real
+`start-http-server.vbs` is git-ignored because the token is a secret.
+
+Then register the URL (`http://127.0.0.1:3939/mcp`) via the Connectors page's
+"Add custom connector". Supply the `Authorization: Bearer` header if the form
+allows it; if it only supports "no auth", omit `MCP_HTTP_TOKEN`.
+
+> **Security (HTTP mode):** these tools can read/send email and manage stored
+> credentials. The server binds to loopback only and disables CORS by default,
+> but any local process can still reach an un-tokened port — prefer setting
+> `MCP_HTTP_TOKEN`, and stop the server when not in use.
+
+---
+
 ## Provider-specific notes
 
 > ### ⚠️ Prefer plain IMAP over Exchange/Microsoft 365 where you can

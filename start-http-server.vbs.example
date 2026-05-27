@@ -1,0 +1,20 @@
+' Launches the claude-email MCP server in HTTP mode with no console window.
+'
+' SETUP: copy this file to "start-http-server.vbs" (which is git-ignored because
+' it holds your secret token), then edit the three values below. Double-click the
+' copy to start the server, or add a shortcut to it in the Windows Startup folder
+' (shell:startup) to launch it automatically at login.
+'
+' This exposes the Streamable HTTP transport at http://127.0.0.1:<port>/mcp, so
+' the server has a URL and can be registered as a URL-based "custom connector".
+'
+' SECURITY: the tools exposed here can read/send email and manage stored
+' credentials. The server binds to 127.0.0.1 only and has CORS off by default.
+' Set MCP_HTTP_TOKEN to require "Authorization: Bearer <token>" on every request.
+' NEVER commit your real token.
+Set sh = CreateObject("WScript.Shell")
+sh.CurrentDirectory = "C:\path\to\claude-email-plugin"
+sh.Environment("PROCESS")("MCP_HTTP_PORT") = "3939"
+' Generate a random value (e.g. 48 hex chars). Delete this line to disable auth.
+sh.Environment("PROCESS")("MCP_HTTP_TOKEN") = "REPLACE_WITH_A_RANDOM_TOKEN"
+sh.Run "node server\index.js", 0, False

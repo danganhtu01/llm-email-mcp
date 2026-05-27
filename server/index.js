@@ -59,6 +59,10 @@ const vault = new CredentialVault();
 const manager = new ImapManager(accounts, ms365, vault);
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
+// Built per connection: each transport (a stdio session, or each stateless HTTP
+// request) gets its own Server instance. Shared resources (manager, vault, ms365)
+// stay module-level so IMAP connections stay pooled across requests.
+function buildServer() {
 const server = new Server(
   { name: 'claude-email', version: '0.1.0' },
   { capabilities: { tools: {} } }
@@ -815,6 +819,125 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+return server;
+}
+
 // ── Start ─────────────────────────────────────────────────────────────────────
-const transport = new StdioServerTransport();
-await server.connect(transport);
+// Two transports are supported:
+//   • stdio (default): the MCP client (e.g. Claude Code) launches this script
+//     per-session and talks over stdin/stdout.
+//   • HTTP (set MCP_HTTP_PORT): runs as a persistent local service exposing the
+//     Streamable HTTP transport at http://<host>:<port><path>. This gives the
+//     server a URL, so it can be registered as a URL-based "custom connector"
+//     in the Connectors gallery. Override host/path with MCP_HTTP_HOST /
+//     MCP_HTTP_PATH (defaults: 127.0.0.1 and /mcp).
+const httpPort = process.env.MCP_HTTP_PORT;
+if (httpPort) {
+  // Lazy-load the HTTP transport ONLY in HTTP mode. StreamableHTTPServerTransport
+  // pulls in @hono/node-server; importing it at module top-level would crash the
+  // DEFAULT stdio mode on any machine where that dependency isn't present. Keeping
+  // it behind a dynamic import guarantees stdio never touches hono.
+  const { StreamableHTTPServerTransport } = await import(
+    '@modelcontextprotocol/sdk/server/streamableHttp.js'
+  );
+  const { createServer: createHttpServer } = await import('node:http');
+
+  const host = process.env.MCP_HTTP_HOST || '127.0.0.1';
+  const mcpPath = process.env.MCP_HTTP_PATH || '/mcp';
+
+  // Security: these tools can read/send email and manage stored credentials, so
+  // the HTTP surface is locked down by default.
+  //   • Bound to 127.0.0.1 (loopback) — not reachable from the network.
+  //   • CORS is OFF by default, so a malicious web page cannot call it from a
+  //     browser. Set MCP_HTTP_ALLOW_ORIGIN to a specific origin only if needed.
+  //   • If MCP_HTTP_TOKEN is set, every request must send "Authorization:
+  //     Bearer <token>". Strongly recommended.
+  const allowedToken = process.env.MCP_HTTP_TOKEN || '';
+  const allowedOrigin = process.env.MCP_HTTP_ALLOW_ORIGIN || '';
+
+  const httpServer = createHttpServer(async (req, res) => {
+    if (allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Accept, mcp-session-id, mcp-protocol-version, Authorization'
+      );
+      res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
+    }
+    if (req.method === 'OPTIONS') {
+      res.writeHead(allowedOrigin ? 204 : 403);
+      res.end();
+      return;
+    }
+
+    if (allowedToken) {
+      const auth = req.headers['authorization'] || '';
+      if (auth !== `Bearer ${allowedToken}`) {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null })
+        );
+        return;
+      }
+    }
+
+    try {
+      const url = new URL(req.url, `http://${req.headers.host || host}`);
+      if (url.pathname !== mcpPath) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Not found' }, id: null })
+        );
+        return;
+      }
+
+      let parsedBody;
+      if (req.method === 'POST') {
+        let raw = '';
+        for await (const chunk of req) raw += chunk;
+        if (raw) {
+          try {
+            parsedBody = JSON.parse(raw);
+          } catch {
+            parsedBody = undefined;
+          }
+        }
+      }
+      // Stateless Streamable HTTP: a fresh Server + transport per request (the
+      // pattern recommended by the MCP SDK). Shared IMAP/vault/ms365 state is
+      // module-level, so connections stay warm across requests.
+      const server = buildServer();
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      res.on('close', () => {
+        transport.close();
+        server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, parsedBody);
+    } catch (err) {
+      process.stderr.write(`[claude-email] HTTP request error: ${err.message}\n`);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32603, message: 'Internal server error' },
+            id: null,
+          })
+        );
+      }
+    }
+  });
+
+  httpServer.listen(Number(httpPort), host, () => {
+    process.stderr.write(
+      `[claude-email] HTTP MCP server listening at http://${host}:${httpPort}${mcpPath}\n`
+    );
+  });
+} else {
+  const server = buildServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
