@@ -61,14 +61,14 @@ packaged file. Install it in Claude Code by adding this folder as a marketplace,
 then installing from it:
 
 ```
-/plugin marketplace add "C:\\Users\\Dang Anh Tu\\GitHub\\claude-email-plugin"
+/plugin marketplace add "$env:OneDrive\\GitHub\\claude-email-plugin"
 /plugin install claude-email@local-marketplace
 ```
 
 Or, to load it for a single session without installing:
 
 ```bash
-claude --plugin-dir "C:\\Users\\Dang Anh Tu\\GitHub\\claude-email-plugin"
+claude --plugin-dir "$env:OneDrive\\GitHub\\claude-email-plugin"
 ```
 
 Once enabled, Claude automatically starts the MCP server and loads the skills.
