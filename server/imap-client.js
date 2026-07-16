@@ -11,13 +11,31 @@ import { CredentialVault } from './vault.js';
 const DEFAULT_LOGIN_TIMEOUT_MS = 20000;
 
 export class ImapManager {
-  constructor(accounts, ms365Auth, vault) {
+  // accountsFilePath is optional and used only to make error/help messages
+  // point at the right file (e.g. a per-user path set via IMAP_ACCOUNTS_FILE
+  // in a multi-user/host-managed deployment) — it's never read here.
+  constructor(accounts, ms365Auth, vault, accountsFilePath = null) {
     this.accounts = accounts || [];
     this.ms365 = ms365Auth || new Ms365Auth();
     this.vault = vault || new CredentialVault();
+    this.accountsFilePath = accountsFilePath;
+  }
+
+  // Shared "nothing configured yet" message for every account-consuming tool,
+  // so a fresh/empty accounts file (e.g. a brand-new per-user file that a host
+  // app hasn't populated yet) surfaces a helpful instruction instead of a bare
+  // "not found" error or a crash.
+  noAccountsMessage() {
+    const where = this.accountsFilePath
+      ? `Add accounts to ${this.accountsFilePath}`
+      : 'Add accounts to your accounts file';
+    return `No email accounts configured. ${where} (edit it directly, or use the add_account tool), then try again.`;
   }
 
   getAccount(name) {
+    if (this.accounts.length === 0) {
+      throw new Error(this.noAccountsMessage());
+    }
     const match = this.accounts.find(
       (a) =>
         a.name.toLowerCase() === name.toLowerCase() ||
@@ -172,6 +190,10 @@ export class ImapManager {
       !accountName || accountName === 'all'
         ? this.accounts
         : [this.getAccount(accountName)];
+
+    if (targets.length === 0) {
+      throw new Error(this.noAccountsMessage());
+    }
 
     const allResults = [];
 

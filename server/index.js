@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, statSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ImapManager } from './imap-client.js';
@@ -16,17 +16,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Load accounts config ──────────────────────────────────────────────────────
 // Priority: IMAP_ACCOUNTS_FILE env var → accounts.json next to this server dir.
-// The path is plugin-relative (see .mcp.json: ${CLAUDE_PLUGIN_ROOT}/accounts.json),
-// so it works on any machine the plugin is cloned to.
+// The default path is plugin-relative (see .mcp.json:
+// ${CLAUDE_PLUGIN_ROOT}/accounts.json), so it works on any machine the plugin
+// is cloned to.
+//
+// Multi-user / host-managed deployments: a host application that spawns one
+// stdio server instance per user should set IMAP_ACCOUNTS_FILE to a per-user
+// path. When that env var is set explicitly, a missing file is NOT an error —
+// the server starts with an empty account list (never seeded from the
+// template) and every account-consuming tool returns a helpful message
+// instead of crashing. See README.md → "Multi-user / host-managed deployments".
+const usingExplicitAccountsFile = !!process.env.IMAP_ACCOUNTS_FILE;
 const configPath =
   process.env.IMAP_ACCOUNTS_FILE ||
   path.join(__dirname, '..', 'accounts.json');
 const examplePath = path.join(__dirname, '..', 'accounts.example.json');
 
-// First-run bootstrap: on a fresh install accounts.json is gitignored and absent,
-// so seed it from the template. This gives the user a local (never-committed) file
-// to enter their non-SSO IMAP passwords into.
-if (!existsSync(configPath) && existsSync(examplePath)) {
+// First-run bootstrap: ONLY for the legacy default (plugin-relative) path,
+// where accounts.json is gitignored and absent on a fresh install — seed it
+// from the template so a single interactive user has a local (never-committed)
+// file to enter their non-SSO IMAP passwords into. Never seed an explicitly
+// configured IMAP_ACCOUNTS_FILE path — a host app owns that file's lifecycle.
+if (!usingExplicitAccountsFile && !existsSync(configPath) && existsSync(examplePath)) {
   try {
     copyFileSync(examplePath, configPath);
     process.stderr.write(
@@ -39,14 +50,42 @@ if (!existsSync(configPath) && existsSync(examplePath)) {
   }
 }
 
+// Drop any entry missing the bare minimum ("name"/"user") instead of letting
+// it crash tool calls later; unknown/extra fields (e.g. a host-added "_meta"
+// block) pass through untouched — this file's schema is intentionally open.
+function sanitizeAccounts(parsed) {
+  const out = [];
+  parsed.forEach((a, i) => {
+    if (!a || typeof a !== 'object' || !a.name || !a.user) {
+      process.stderr.write(
+        `[claude-email] Skipping invalid account entry at index ${i} in ${configPath} (needs at least "name" and "user").\n`
+      );
+      return;
+    }
+    out.push(a);
+  });
+  return out;
+}
+
+function loadAccountsFromFile() {
+  if (!existsSync(configPath)) return [];
+  const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+  if (!Array.isArray(parsed)) throw new Error('accounts file must be a JSON array');
+  return sanitizeAccounts(parsed);
+}
+
 let accounts = [];
 if (existsSync(configPath)) {
   try {
-    accounts = JSON.parse(readFileSync(configPath, 'utf8'));
-    if (!Array.isArray(accounts)) throw new Error('accounts.json must be an array');
+    accounts = loadAccountsFromFile();
   } catch (e) {
     process.stderr.write(`[claude-email] Failed to load ${configPath}: ${e.message}\n`);
   }
+} else if (usingExplicitAccountsFile) {
+  process.stderr.write(
+    `[claude-email] ${configPath} does not exist yet — starting with no accounts configured. ` +
+      'Add accounts to this file (or use the add_account tool) to get started.\n'
+  );
 } else {
   process.stderr.write(
     `[claude-email] No accounts.json found at ${configPath} and no template to seed it. ` +
@@ -54,9 +93,44 @@ if (existsSync(configPath)) {
   );
 }
 
+// Reload without restart: an external manager (host app) may add/remove/edit
+// accounts on disk while the server is running. Every tool invocation does a
+// cheap mtime check (reloadAccountsIfChanged, called from the tool handler
+// below) and only re-reads + re-parses the file when its mtime actually
+// changed — no polling loop, no watcher.
+let accountsMtimeMs = existsSync(configPath) ? statSync(configPath).mtimeMs : null;
+
+function reloadAccountsIfChanged() {
+  let mtimeMs = null;
+  try {
+    if (existsSync(configPath)) mtimeMs = statSync(configPath).mtimeMs;
+  } catch (_) {
+    /* stat race (e.g. file deleted mid-check) — keep previous in-memory state */
+  }
+  if (mtimeMs === accountsMtimeMs) return;
+  accountsMtimeMs = mtimeMs;
+
+  if (mtimeMs === null) {
+    // File was removed since last load — "no accounts configured", not a crash.
+    accounts.length = 0;
+    return;
+  }
+  try {
+    const fresh = loadAccountsFromFile();
+    // Mutate in place (don't reassign `accounts`) so the same array reference
+    // held by `manager.accounts` picks up the change too.
+    accounts.length = 0;
+    accounts.push(...fresh);
+  } catch (e) {
+    process.stderr.write(
+      `[claude-email] Failed to reload ${configPath}: ${e.message}. Keeping previous accounts.\n`
+    );
+  }
+}
+
 const ms365 = new Ms365Auth();
 const vault = new CredentialVault();
-const manager = new ImapManager(accounts, ms365, vault);
+const manager = new ImapManager(accounts, ms365, vault, configPath);
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
 // Built per connection: each transport (a stdio session, or each stateless HTTP
@@ -557,19 +631,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args = {} } = request.params;
 
+  // Pick up any out-of-band edits to the accounts file (e.g. a host app that
+  // manages multiple per-user servers adding/removing an account) before
+  // acting — cheap: a single stat, and a re-read only when mtime changed.
+  reloadAccountsIfChanged();
+
   try {
     let result;
 
     switch (name) {
       case 'list_accounts':
-        result = accounts.map((a) => ({
-          name: a.name,
-          email: a.user,
-          host: a.host,
-          port: a.port || 993,
-          secure: a.secure !== false,
-          auth: isOAuthAccount(a) ? 'oauth2 (Microsoft 365 SSO)' : 'password',
-        }));
+        result = accounts.length
+          ? accounts.map((a) => ({
+              name: a.name,
+              email: a.user,
+              host: a.host,
+              port: a.port || 993,
+              secure: a.secure !== false,
+              auth: isOAuthAccount(a) ? 'oauth2 (Microsoft 365 SSO)' : 'password',
+            }))
+          : { accounts: [], message: manager.noAccountsMessage() };
         break;
 
       case 'list_folders':
@@ -613,6 +694,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'login_accounts': {
+        if (!args.account && accounts.length === 0) {
+          result = { logins: [], instructions: manager.noAccountsMessage() };
+          break;
+        }
         // Process one named account, or every OAuth2 account that needs login.
         const targets = args.account
           ? [manager.getAccount(args.account)].filter(isOAuthAccount)
@@ -661,6 +746,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const entry = manager.addAccount(args);
         // Persist the updated in-memory array back to accounts.json.
         writeFileSync(configPath, JSON.stringify(accounts, null, 2) + '\n');
+        // Re-sync the mtime we just caused, so the next tool call's cheap
+        // mtime check doesn't immediately trigger a redundant reload.
+        try { accountsMtimeMs = statSync(configPath).mtimeMs; } catch (_) { /* ignore */ }
         const { pass, clientId, ...rest } = entry;
         result = {
           status: 'added',
@@ -687,14 +775,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'list_credentials':
-        result = accounts.map((a) => {
-          let source;
-          if (isOAuthAccount(a)) source = 'oauth2 (Microsoft 365 SSO)';
-          else if (a.pass) source = 'plaintext (accounts.json)';
-          else if (vault.has(a.name)) source = 'keychain';
-          else source = 'none (not set)';
-          return { name: a.name, email: a.user, auth: source };
-        });
+        result = accounts.length
+          ? accounts.map((a) => {
+              let source;
+              if (isOAuthAccount(a)) source = 'oauth2 (Microsoft 365 SSO)';
+              else if (a.pass) source = 'plaintext (accounts.json)';
+              else if (vault.has(a.name)) source = 'keychain';
+              else source = 'none (not set)';
+              return { name: a.name, email: a.user, auth: source };
+            })
+          : { accounts: [], message: manager.noAccountsMessage() };
         break;
 
       case 'test_credential': {

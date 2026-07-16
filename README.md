@@ -124,6 +124,67 @@ allows it; if it only supports "no auth", omit `MCP_HTTP_TOKEN`.
 
 ---
 
+## Multi-user / host-managed deployments
+
+Beyond the single-user "one plugin folder on your machine" setup described
+above, this server also works as one **stdio process per user**, spawned by a
+host application that gives each instance its own environment. Two env vars
+make that isolation possible:
+
+| Env var | Purpose |
+|---|---|
+| `IMAP_ACCOUNTS_FILE` | Absolute path to that user's accounts file. Overrides the plugin-relative default (`accounts.json` next to this repo). |
+| `MS365_TOKEN_CACHE_FILE` | Absolute path to that user's Microsoft 365 OAuth token cache. Overrides the default (`~/.imap-mail/ms365-token-cache.json`). The older name `IMAP_TOKEN_CACHE_FILE` still works as a back-compat alias. |
+
+A host app should point both at a per-user location (e.g. under that user's
+own data directory) before spawning the server, so each user's accounts and
+OAuth tokens stay isolated from every other user's.
+
+**Empty-file behavior.** When `IMAP_ACCOUNTS_FILE` is set explicitly and that
+file doesn't exist yet, the server does **not** seed it from
+`accounts.example.json` and does **not** exit — it starts with zero accounts
+configured, and every account-consuming tool (`list_accounts`, `list_folders`,
+`search_emails`, `read_email`, `send_email`, etc.) returns a clear message —
+*"No email accounts configured. Add accounts to \<path\> …"* — instead of
+erroring out or crashing. (The auto-seed-from-template convenience stays
+reserved for the legacy plugin-relative default path, aimed at a single
+interactive user setting the plugin up by hand.) The host app can create the
+file itself — as a JSON array, `[]` to start or pre-populated — at any point,
+including after the server has already started.
+
+**Live reload, no restart.** The server re-reads `IMAP_ACCOUNTS_FILE` whenever
+its mtime changes, checked with one cheap `stat` on every tool call (no
+polling loop, no file watcher). This lets an external account manager add,
+edit, or remove accounts on disk while the server keeps running — it picks up
+the change on the very next tool call.
+
+**Unknown fields tolerated.** An account entry only needs `name` and `user` to
+be accepted; anything else a host app wants to stash on the entry (e.g. a
+`_meta` block for its own bookkeeping) passes through untouched and is simply
+ignored by the server. Entries missing `name`/`user` are skipped individually
+(logged to stderr) rather than failing the whole file.
+
+**Token cache permissions.** The OAuth token cache directory is created mode
+`0700` and the cache file `0600` the first time a token is written, so only
+the process owner can read cached refresh tokens.
+
+### Per-provider setup, in short (for a host app's own onboarding UI)
+
+| Provider | Account shape | What the user needs |
+|---|---|---|
+| **Microsoft 365 / Exchange Online** | `"authType": "oauth2"` + `clientId` (+ optional `tenantId`) | An Azure AD app registration — see "Microsoft 365 / Exchange Online — SSO" below. Then call the `ms365_login` tool (device-code SSO); no password is ever stored. |
+| **Gmail** | `"imap"`, `host: "imap.gmail.com"` | **Not** wired up as an OAuth2 SSO provider here (there's no Google equivalent of the Microsoft 365 device-code flow in this server) — add it as a plain IMAP account with a Google **App Password**, which requires 2-Step Verification to be enabled: https://myaccount.google.com/apppasswords |
+| **Yahoo Mail** | `"imap"`, `host: "imap.mail.yahoo.com"` | An **App Password** (not the Yahoo account password): https://myaccount.yahoo.com/security |
+| **Apple iCloud Mail** | `"imap"`, `host: "imap.mail.me.com"` | An **App-Specific Password** (not the Apple ID password): https://appleid.apple.com → Sign-In and Security |
+| **Generic cPanel / web hosting** | `"imap"`, `host: "mail.<domain>"` | The mailbox password |
+
+For every non-SSO provider above: add the account (via `add_account`, or by
+writing the entry into the accounts file directly) with no `pass` field, then
+store its password with the `set_credential` tool — it goes to the OS
+keychain, never into the accounts file in plaintext.
+
+---
+
 ## Provider-specific notes
 
 > ### ⚠️ Prefer plain IMAP over Exchange/Microsoft 365 where you can
@@ -161,9 +222,11 @@ warning above). To set up Exchange Online SSO:
 4. Under **Authentication** → **Advanced settings** → set **Allow public client flows** to **Yes** (required for the device-code flow).
 5. Put `clientId` and `tenantId` in `accounts.json`, then ask Claude to **"sign in to my Microsoft 365 account"** (the `ms365_login` tool). It returns a code + URL — open it, enter the code, and approve. The refresh token is cached, so you only do this once.
 
-The OAuth token cache is stored at `~/.imap-mail/ms365-token-cache.json` (file
-mode `600`), **outside** this plugin folder — override with the
-`IMAP_TOKEN_CACHE_FILE` env var.
+The OAuth token cache is stored at `~/.imap-mail/ms365-token-cache.json`
+(directory mode `700`, file mode `600`), **outside** this plugin folder —
+override with the `MS365_TOKEN_CACHE_FILE` env var (`IMAP_TOKEN_CACHE_FILE`
+still works as an older alias). See "Multi-user / host-managed deployments"
+above for per-user cache paths.
 
 ### Sending email (`send_email` / `create_draft`)
 Sending uses SMTP, which is separate from the IMAP read path:

@@ -6,7 +6,7 @@
 // approves once. The refresh token is cached to disk, so subsequent IMAP calls
 // acquire access tokens silently without re-prompting.
 import { PublicClientApplication, LogLevel } from '@azure/msal-node';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'fs';
 import os from 'os';
 import path from 'path';
 
@@ -57,7 +57,12 @@ export const GRAPH_LOGIN_SCOPES = [
 ];
 
 // Token cache lives outside the (OneDrive-synced) plugin folder by default.
+// MS365_TOKEN_CACHE_FILE is the primary override (documented, for multi-user /
+// host-managed deployments — a host app sets one per-user path per spawned
+// server instance). IMAP_TOKEN_CACHE_FILE is kept as a back-compat alias for
+// anyone already relying on the older name.
 const DEFAULT_CACHE_FILE =
+  process.env.MS365_TOKEN_CACHE_FILE ||
   process.env.IMAP_TOKEN_CACHE_FILE ||
   path.join(os.homedir(), '.imap-mail', 'ms365-token-cache.json');
 
@@ -109,8 +114,13 @@ export class Ms365Auth {
       afterCacheAccess: async (ctx) => {
         if (ctx.cacheHasChanged) {
           try {
-            mkdirSync(path.dirname(file), { recursive: true });
+            const dir = path.dirname(file);
+            mkdirSync(dir, { recursive: true });
+            // Restrict the cache directory to the owner (0700), same intent as
+            // the file's 0600 below — this file holds a refresh token.
+            try { chmodSync(dir, 0o700); } catch (_) { /* e.g. unsupported on this fs */ }
             writeFileSync(file, ctx.tokenCache.serialize(), { mode: 0o600 });
+            try { chmodSync(file, 0o600); } catch (_) { /* mode above already applied on create */ }
           } catch (_) { /* non-fatal: tokens just won't persist */ }
         }
       },
