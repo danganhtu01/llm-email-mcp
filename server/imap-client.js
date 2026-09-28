@@ -732,6 +732,10 @@ export class ImapManager {
             filename: 'forwarded.eml',
             content: orig.source,
             contentType: 'message/rfc822',
+            // RFC 2046 § 5.2.1: message/rfc822 may only be 7bit, 8bit or binary. Left to
+            // nodemailer's default base64, Microsoft 365 read the base64 text as the message
+            // and delivered a 25-byte scrap in place of the original.
+            contentTransferEncoding: '8bit',
           });
           if (!subject) {
             const s = orig.envelope?.subject || '';

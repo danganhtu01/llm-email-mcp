@@ -122,6 +122,20 @@ let threw = false;
 try { await mgr._composeMessage(account, { to: [], subject: 'x' }); } catch { threw = true; }
 check('compose: empty to throws', threw);
 
+// A forward attaches the original as message/rfc822, which RFC 2046 § 5.2.1 allows only
+// in 7bit, 8bit or binary. Encoded as base64 (nodemailer's default), Microsoft 365 read the
+// base64 text as the message itself and delivered a 25-byte scrap (2026-09-28).
+const original = 'From: shop@example.com\r\nSubject: Invoice 42\r\nMIME-Version: 1.0\r\n\r\nTotal: 50.00\r\n';
+mgr.withClient = async (_acct, fn) => fn({
+  mailboxOpen: async () => {},
+  fetchOne: async () => ({ source: Buffer.from(original), envelope: { subject: 'Invoice 42' } }),
+});
+const fwd = (await mgr._composeMessage(account, { to: ['bob@example.com'], body: 'See attached.', forward_uid: '7' })).raw.toString('utf8');
+const part = fwd.slice(fwd.indexOf('Content-Type: message/rfc822'));
+check('forward: subject gets Fwd:', /^Subject: Fwd: Invoice 42/m.test(fwd));
+check('forward: rfc822 part is 8bit, not base64', /^Content-Transfer-Encoding: 8bit/m.test(part.split('\r\n\r\n')[0]));
+check('forward: original carried verbatim', part.includes(original));
+
 rmSync(tmp, { force: true });
 console.log('─'.repeat(60));
 console.log(failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`);
