@@ -54,3 +54,5 @@ raised in the original email.]
 - After presenting the draft, offer: "Want me to adjust the tone, add
   anything, or set a follow-up reminder if you don't hear back?"
 - Do not send anything — present the draft for the user to review only.
+
+The tools this skill calls, and how each account is set up: [the plugin README](../../README.md).

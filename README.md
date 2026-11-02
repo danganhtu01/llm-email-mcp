@@ -6,6 +6,24 @@ suggestions, and surface follow-up reminders across all your email accounts.
 Supports Microsoft Exchange, Yahoo Mail, Apple iCloud, cPanel hosting, and any
 standard IMAP server.
 
+## Files
+
+| Path | What it is |
+|------|------------|
+| [`server/index.js`](server/index.js) | The MCP server: every tool, stdio and HTTP modes |
+| [`server/imap-client.js`](server/imap-client.js) | IMAP and SMTP access for each account |
+| [`server/ms365-auth.js`](server/ms365-auth.js) | Microsoft 365 device-code sign-in and its token cache |
+| [`server/vault.js`](server/vault.js) | The OS keychain credential store |
+| [`server/test-live.mjs`](server/test-live.mjs), [`server/test-newtools.mjs`](server/test-newtools.mjs), [`server/test-vault.mjs`](server/test-vault.mjs), [`server/test-writetools.mjs`](server/test-writetools.mjs) | Tests |
+| [`server/package.json`](server/package.json), [`server/package-lock.json`](server/package-lock.json) | Node dependencies |
+| [`skills/email-report/SKILL.md`](skills/email-report/SKILL.md), [`skills/reply-suggestion/SKILL.md`](skills/reply-suggestion/SKILL.md), [`skills/email-reminders/SKILL.md`](skills/email-reminders/SKILL.md) | The plugin's skills (§ Skills) |
+| [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json), [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) | The plugin and its local marketplace |
+| [`.mcp.json`](.mcp.json) | How Claude Code starts the server |
+| [`accounts.example.json`](accounts.example.json) | The template `accounts.json` is made from (§ Setup) |
+| [`start-http-server.vbs.example`](start-http-server.vbs.example) | Windows launcher for HTTP mode (§ HTTP mode) |
+| [`LICENSE`](LICENSE) | The licence |
+| [`.gitignore`](.gitignore) | Keeps credentials, token caches and `node_modules/` out of git |
+
 ---
 
 ## Setup (one-time)
@@ -61,14 +79,14 @@ packaged file. Install it in Claude Code by adding this folder as a marketplace,
 then installing from it:
 
 ```
-/plugin marketplace add "$env:OneDrive\\GitHub\\claude-email-plugin"
+/plugin marketplace add "<path-to-repository>"
 /plugin install claude-email@local-marketplace
 ```
 
 Or, to load it for a single session without installing:
 
 ```bash
-claude --plugin-dir "$env:OneDrive\\GitHub\\claude-email-plugin"
+claude --plugin-dir "<path-to-repository>"
 ```
 
 Once enabled, Claude automatically starts the MCP server and loads the skills.
@@ -354,7 +372,9 @@ The keyring service name defaults to `imap-mail`; override with the
 
 - Prefer the keychain (`set_credential`) or Microsoft 365 SSO over plaintext —
   then `accounts.json` holds **no secrets at all**.
-- Credentials are stored **only** in `accounts.json` on your local machine.
+- Credentials stay on your local machine: in `accounts.json`, the OS keychain
+  (service `imap-mail`), or the Microsoft 365 token cache
+  `~/.imap-mail/ms365-token-cache.json`.
 - The MCP server runs as a local process — nothing is sent to the cloud.
 - Keep `accounts.json` private. It is listed in `.gitignore` if you version
   this plugin directory.

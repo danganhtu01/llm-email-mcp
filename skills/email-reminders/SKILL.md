@@ -77,3 +77,5 @@ Flag an email as action-oriented if any of the following appear in subject or bo
   present in the email.
 - After presenting the report, offer: "Want me to draft a reply for any of
   these, or download any attachments?"
+
+The tools this skill calls, and how each account is set up: [the plugin README](../../README.md).

@@ -53,3 +53,5 @@ Use this structure — keep it scannable, no walls of text:
 - If an account returns an error, report the error and continue with others.
 - After presenting the report, ask: "Would you like me to open any of these,
   draft a reply, or set a reminder?"
+
+The tools this skill calls, and how each account is set up: [the plugin README](../../README.md).
